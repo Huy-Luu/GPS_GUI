@@ -1,0 +1,903 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.IO.Ports;
+using System.Threading;
+using ZedGraph;
+using AxMapWinGIS;
+using MapWinGIS;
+
+
+namespace GUI2
+{
+    public partial class Form1 : Form
+    {
+        string dataOut, pre_dir, dir="f", speed;
+        string sendWidth;
+        string dataIn;
+        string data1, data2, data3;
+        int TickStart, Mode = 1;
+        enum directions { forward, backward, left, right, stop}
+        directions control=directions.stop;
+        bool pressed = false;
+        private int m_layerHandle = -1;
+        double lon1, lat1, lon2, lat2, distance;
+        double x2, y2, org_lon, org_lat, org_lon_conv, org_lat_conv;
+        string folder, filename, fullpath, toSend;
+
+
+
+        public Form1()
+        {
+            InitializeComponent();
+
+        }
+
+        private void progressBar1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            string[] ports = SerialPort.GetPortNames();
+
+            myMap.KnownExtents = MapWinGIS.tkKnownExtents.keVietnam;
+            myMap.ShowCoordinates = MapWinGIS.tkCoordinatesDisplay.cdmAuto;
+
+            /*
+            GraphPane myPane = zed.GraphPane;
+
+            myPane.Title.Text = "Speed of 2 motors";
+            myPane.XAxis.Title.Text = "Time(s)";
+            myPane.YAxis.Title.Text = "Speed(m)";
+
+            RollingPointPairList list1 = new RollingPointPairList(60000);
+            RollingPointPairList list2 = new RollingPointPairList(60000);
+
+            LineItem curve1 = myPane.AddCurve("Motor Left", list1, Color.Red, SymbolType.None);
+            LineItem curve2 = myPane.AddCurve("Motor Right", list2, Color.Blue, SymbolType.None);
+
+            myPane.XAxis.Scale.Min = 0;
+            myPane.XAxis.Scale.Max = 30;
+            myPane.XAxis.Scale.MinorStep = 1;
+            myPane.XAxis.Scale.MajorStep = 5;
+            zed.AxisChange();
+            */
+            TickStart = Environment.TickCount;
+
+            cBoxComPort.Items.AddRange(ports);
+
+            chBoxDTR.Checked = false;
+            serialPort1.DtrEnable = false;
+
+            chBoxRST.Checked = false;
+            serialPort1.RtsEnable = false;
+
+            chBoxWrite.Checked = true;
+            chBoxWriteLine.Checked = false;
+            sendWidth = "Write";
+
+
+        }
+
+        private void btnOpen_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                serialPort1.PortName = cBoxComPort.Text;
+                serialPort1.BaudRate = Convert.ToInt32(cBoxBaudRate.Text);
+                serialPort1.DataBits = Convert.ToInt32(cBoxDataBits.Text);
+                serialPort1.StopBits = (StopBits)Enum.Parse(typeof(StopBits), cBoxStopBits.Text);
+                serialPort1.Parity = (Parity)Enum.Parse(typeof(Parity), cBoxParityBits.Text);
+
+                serialPort1.Open();
+                progressBar1.Value = 100;
+
+                btnOpen.Enabled = false;
+                btnClose.Enabled = true;
+                lblStatusCom.Text = "ON";
+            }
+
+            catch(Exception err)
+            {
+                MessageBox.Show(err.Message,"Error",MessageBoxButtons.OK, MessageBoxIcon.Error);
+                btnOpen.Enabled = true;
+                btnClose.Enabled = false;
+                lblStatusCom.Text = "OFF";
+            }
+
+        }
+
+        private void btnClose_Click(object sender, EventArgs e)
+        {
+            if(serialPort1.IsOpen)
+            {
+                serialPort1.Close();
+                progressBar1.Value = 0;
+                btnOpen.Enabled = true;
+                btnClose.Enabled = false;
+                lblStatusCom.Text = "OFF";
+            }
+        }
+
+        private void btnSendData_Click(object sender, EventArgs e)
+        {
+            if(serialPort1.IsOpen)
+            {
+                dataOut = tBoxDataOut.Text;
+                if(sendWidth=="Write")
+                {
+                    serialPort1.Write(dataOut);
+                }
+                else if(sendWidth == "Write Line")
+                {
+                    serialPort1.WriteLine(dataOut);
+                }
+            }
+        }
+
+
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void chBoxDTR_CheckedChanged(object sender, EventArgs e)
+        {
+            if (chBoxDTR.Checked)
+            {
+                serialPort1.DtrEnable = true;
+            }
+            else
+            { serialPort1.DtrEnable = false; }
+        }
+
+        private void chBoxRST_CheckedChanged(object sender, EventArgs e)
+        {
+            if(chBoxRST.Checked)
+            {
+                serialPort1.RtsEnable = true;
+            }
+            else
+            {
+                serialPort1.RtsEnable = false;
+            }
+        }
+
+        private void btnClearData_Click(object sender, EventArgs e)
+        {
+            if(tBoxDataOut.Text != "");
+            {
+                tBoxDataOut.Text = "";
+            }
+        }
+
+        private void btnClearDataIn_Click(object sender, EventArgs e)
+        {
+            if (tBoxDataIn.Text != "") ;
+            {
+                tBoxDataIn.Text = "";
+            }
+        }
+
+        private void tBoxDataOut_TextChanged(object sender, EventArgs e)
+        {
+            int dataOUTlength = tBoxDataOut.TextLength;
+            lblDataOutLength.Text = string.Format("{0:00}", dataOUTlength);
+        }
+
+        private void lblDataOutLength_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void chBoxWriteLine_CheckedChanged(object sender, EventArgs e)
+        {
+            if(chBoxWriteLine.Checked)
+            {
+                sendWidth = "Write Line";
+                chBoxWriteLine.Checked = true;
+                chBoxWrite.Checked = false;
+
+            }
+        }
+
+        private void checkBox3_CheckedChanged(object sender, EventArgs e)
+        {
+            if (chBoxWrite.Checked)
+            {
+                sendWidth = "Write";
+                chBoxWrite.Checked = true;
+                chBoxWriteLine.Checked = false;
+
+            }
+        }
+
+        private void serialPort1_DataReceived(object sender, SerialDataReceivedEventArgs e)
+        {
+            dataIn = serialPort1.ReadExisting();
+            this.Invoke(new EventHandler(ShowData));
+            string[] dataList = dataIn.Split(',');
+            if (dataList.Length == 3)
+            {
+                data1 = dataList[0];
+                data2 = dataList[1];
+                data3 = dataList[2];
+                //Draw("0", data3);
+                // Draw(data2, data3);
+            }
+
+        }
+
+        private void ShowData(object sender, EventArgs e)
+        {
+            int dataInLength = dataIn.Length;
+            lblDataInLength.Text = string.Format("{0:00}", dataInLength);
+            tBoxDataIn.Text += dataIn;
+            tBoxDataIn.SelectionStart = tBoxDataIn.TextLength;
+
+            tBoxDataIn.ScrollToCaret();
+            tBoxDataIn.Refresh();
+
+
+
+            //Draw("10", dataList[2]);
+
+            
+
+        }
+
+        private void btnStartCalculation_Click(object sender, EventArgs e)
+        {
+            System.Diagnostics.Process process = System.Diagnostics.Process.Start("E:\\cpp\\STM32 but keil\\Do_an\\mapping\\map3\\map3.exe");
+            Thread.Sleep(5000);
+            int counter = 0;
+            string line;
+
+            // Read the file and display it line by line.  
+            System.IO.StreamReader file =
+                new System.IO.StreamReader(@"E:\\cpp\\STM32 but keil\\Do_an\\mapping\\map3\\ToSend.txt");
+            while ((line = file.ReadLine()) != null)
+            {
+                //System.Console.WriteLine(line);
+                tBoxDataOut.Text += line + '\n';
+                counter++;
+            }
+
+            file.Close();
+
+            tBoxDataOut.SelectionStart = tBoxDataOut.TextLength;
+
+            tBoxDataOut.ScrollToCaret();
+            tBoxDataOut.Refresh();
+
+            // Suspend the screen.  
+            System.Console.ReadLine();
+
+        }
+        /*
+        private void Draw(string Motor1, string Motor2)
+        {
+            double motor1, motor2;
+            double.TryParse(Motor1, out motor1);
+            double.TryParse(Motor2, out motor2);
+
+            if (zed.GraphPane.CurveList.Count == 0)
+                return;
+
+            LineItem curve1 = zed.GraphPane.CurveList[0] as LineItem;
+            LineItem curve2 = zed.GraphPane.CurveList[1] as LineItem;
+            if(curve1==null)
+            {
+                return;
+            }
+            if (curve2 == null)
+            {
+                return;
+            }
+        
+
+            //Lay point List
+            IPointListEdit list1 = curve1.Points as IPointListEdit;
+            IPointListEdit list2 = curve2.Points as IPointListEdit;
+
+            if(list1==null)
+            {
+                return;
+            }
+            if(list2==null)
+            {
+                return;
+            }
+
+            double time = (Environment.TickCount-TickStart)/1000.0;
+            list1.Add(time, motor1);
+            list2.Add(time, motor2);
+
+            Scale xScale = zed.GraphPane.XAxis.Scale;
+            if(time>xScale.Max - xScale.MajorStep)
+            {
+                if(Mode==1)
+                {
+                    xScale.Max = time + xScale.MajorStep;
+                    xScale.Min = xScale.Max - 30.0;
+
+                }
+                else
+                {
+                    xScale.Max = time + xScale.MajorStep;
+                    xScale.Min = 0;
+                }
+            }
+            zed.AxisChange();
+            zed.Invalidate();
+
+
+        }
+        */
+
+
+        private void btnSetMode_Click(object sender, EventArgs e)
+        {
+            if(boxMode.Text=="Manual")
+            {
+                dir = "0";
+                serialPort1.Write(dir);
+            }
+
+            else if(boxMode.Text=="Auto")
+            {
+                dir = "1";
+                serialPort1.Write(dir);
+            }
+        }
+
+        
+        private void tBoxDataOut_KeyDetecting(object sender, KeyEventArgs e)
+        {
+            
+            pressed = true;
+            if (boxMode.Text == "Manual")
+            {
+                if (e.KeyCode == Keys.W)
+                {
+                    dir = "w";
+                    control = directions.forward;
+                }
+                else if (e.KeyCode == Keys.S)
+                {
+                    dir = "s";
+                    control = directions.backward;
+                }
+                else if (e.KeyCode == Keys.A)
+                {
+                    dir = "a";
+                    control = directions.left;
+                }
+                else if (e.KeyCode == Keys.D)
+                {
+                    dir = "d";
+                    control = directions.right;
+                }
+                else
+                {
+                    control = directions.stop;
+                }
+
+                if (tBoxDataOut.TextLength > 0)
+                {
+                    tBoxDataOut.Text = tBoxDataOut.Text.Substring(0, (tBoxDataOut.TextLength - 1));
+                }
+            }
+           
+        }
+
+
+
+
+
+
+
+        private void tBoxDataOut_KeyUp(object sender, KeyEventArgs e)
+        {
+            control = directions.stop;
+            dir = "f";
+
+            if (boxMode.Text == "Manual")
+            {
+                tBoxDataOut.Text += "stop" + dir + "\r\n";
+
+                if (serialPort1.IsOpen)
+                {
+                    serialPort1.Write(dir);
+                }
+            }
+
+            tBoxDataOut.SelectionStart = tBoxDataOut.TextLength;
+
+            tBoxDataOut.ScrollToCaret();
+            tBoxDataOut.Refresh();
+
+
+        }
+
+        private void timer2_Tick(object sender, EventArgs e)
+        {
+            string[] ports = SerialPort.GetPortNames();
+
+            cBoxComPort.Items.AddRange(ports);
+
+            chBoxDTR.Checked = false;
+            serialPort1.DtrEnable = false;
+
+            chBoxRST.Checked = false;
+            serialPort1.RtsEnable = false;
+
+            chBoxWrite.Checked = true;
+            chBoxWriteLine.Checked = false;
+            sendWidth = "Write";
+        }
+
+
+        /*
+        private void button1_Click_1(object sender, EventArgs e)
+        {
+            if (btnDisplayMode.Text == "Sroll")
+            {
+                Mode = 1;
+                btnDisplayMode.Text = "Compact";
+            }
+            else if (btnDisplayMode.Text == "Compact")
+            {
+                Mode = 0;
+                btnDisplayMode.Text = "Sroll";
+            }
+
+        }
+        */
+        private void timer1_Tick(object sender, EventArgs e)
+        {
+
+            //this part is put key down and key up part
+            
+            if (boxMode.Text == "Manual")
+            {
+                if (pre_dir!=dir)
+                {
+                    switch (control)
+                    {
+                        case directions.forward:
+                            tBoxDataOut.Text += "foward" + dir + "\r\n";
+                            break;
+                        case directions.backward:
+                            tBoxDataOut.Text += "backward" + dir + "\r\n";
+                            break;
+                        case directions.left:
+                            tBoxDataOut.Text += "left" + dir + "\r\n";
+                            break;
+                        case directions.right:
+                            tBoxDataOut.Text += "right" + dir + "\r\n";
+                            break;
+                            /*
+                        case directions.stop:
+                            tBoxDataOut.Text += "stop" + dir + "\r\n";
+                            break;*/
+                    }
+                }
+
+                
+                if(serialPort1.IsOpen)
+                {
+                    serialPort1.Write(dir);
+                }
+
+                pre_dir = dir;
+
+
+
+                tBoxDataOut.SelectionStart = tBoxDataOut.TextLength;
+
+                tBoxDataOut.ScrollToCaret();
+                tBoxDataOut.Refresh();                
+             }
+            
+
+        }
+
+        private void btnSetSpeed_Click(object sender, EventArgs e)
+        {
+            serialPort1.Write("p");
+            speed = txtSpeed.Text;
+            System.Threading.Thread.Sleep(100);
+            tBoxDataOut.Text += speed + "\r\n";
+            serialPort1.Write(speed);
+        }
+
+        //---------Map related-----------------
+        private void btnLoadMap_Click(object sender, EventArgs e)
+        {
+            myMap.TileProvider = MapWinGIS.tkTileProvider.OpenCycleMap;
+        }
+
+        private void btnStreetMap_Click(object sender, EventArgs e)
+        {
+            myMap.TileProvider = MapWinGIS.tkTileProvider.OpenStreetMap;
+        }
+
+        private void btnHumanitarian_Click(object sender, EventArgs e)
+        {
+            myMap.TileProvider = MapWinGIS.tkTileProvider.OpenHumanitarianMap;
+        }
+
+        private void groupBox11_Enter(object sender, EventArgs e)
+        {
+
+        }
+
+        private void btnCursor_Click(object sender, EventArgs e)
+        {
+            myMap.CursorMode = MapWinGIS.tkCursorMode.cmPan;
+        }
+
+        private void btnZoom_Click(object sender, EventArgs e)
+        {
+            myMap.CursorMode = MapWinGIS.tkCursorMode.cmZoomOut;
+        }
+
+        private void btnMeasure_Click(object sender, EventArgs e)
+        {
+            myMap.CursorMode = MapWinGIS.tkCursorMode.cmMeasure;
+        }
+
+        private void btnAreaMeasure_Click(object sender, EventArgs e)
+        {
+            myMap.CursorMode = MapWinGIS.tkCursorMode.cmMeasure;
+            myMap.Measuring.MeasuringType = MapWinGIS.tkMeasuringType.MeasureArea;
+        }
+
+        private void groupBox13_Enter(object sender, EventArgs e)
+        {
+
+        }
+
+        private void btnLoadCurrentPosition_Click(object sender, EventArgs e)
+        {
+
+            var sf = new Shapefile();
+            // MWShapeId field will be added to attribute table
+            bool result = sf.CreateNewWithShapeID("", ShpfileType.SHP_POINT);
+            int i = 0;
+                var pnt = new MapWinGIS.Point();
+                org_lat = 10.772790;
+                org_lon = 106.659947;
+                myMap.DegreesToProj(org_lon, org_lat, ref org_lat_conv, ref org_lon_conv);
+                pnt.x = org_lat_conv;
+                pnt.y = org_lon_conv;
+                Shape shp = new Shape();
+                shp.Create(ShpfileType.SHP_POINT);
+                int index = 0;
+                shp.InsertPoint(pnt, ref index);
+                sf.EditInsertShape(shp, ref i);
+            
+            sf.DefaultDrawingOptions.SetDefaultPointSymbol(tkDefaultPointSymbol.dpsStar);
+            // adds shapefile to the map
+            myMap.AddLayer(sf, true);
+            // save if needed
+            //sf.SaveAs(@"c:\points.shp", null);
+        }
+
+
+        //--------------------TEST PLACING MARKER----------------------
+        public void MarkPoints(AxMap myMap, string dataPath)
+        {
+            myMap.Projection = tkMapProjection.PROJECTION_GOOGLE_MERCATOR;
+            string filename = dataPath + "buildings.shp";
+            if (!File.Exists(filename))
+            {
+                MessageBox.Show("Couldn't file the file: " + filename);
+                return;
+            }
+            var sf = new Shapefile();
+            sf.Open(filename, null);
+            m_layerHandle = myMap.AddLayer(sf, true);
+            sf = myMap.get_Shapefile(m_layerHandle);     // in case a copy of shapefile was created by GlobalSettings.ReprojectLayersOnAdding
+            sf = new Shapefile();
+            if (!sf.CreateNewWithShapeID("", ShpfileType.SHP_POINT))
+            {
+                MessageBox.Show("Failed to create shapefile: " + sf.ErrorMsg[sf.LastErrorCode]);
+                return;
+            }
+            m_layerHandle = myMap.AddLayer(sf, true);
+            ShapeDrawingOptions options = sf.DefaultDrawingOptions;
+            options.PointType = tkPointSymbolType.ptSymbolPicture;
+            options.Picture = this.OpenMarker(dataPath);
+            sf.CollisionMode = tkCollisionMode.AllowCollisions;
+            myMap.SendMouseDown = true;
+            myMap.CursorMode = tkCursorMode.cmNone;
+            myMap.MouseDownEvent += AxMap1MouseDownEvent;   // change MapEvents to axMap1
+        }
+        // <summary>
+        // Opens a marker from the file
+        // </summary>
+        private MapWinGIS.Image OpenMarker(string dataPath)
+        {
+            string path = Path.GetDirectoryName(Application.ExecutablePath) + @"..\..\..\..\icons\marker.png";
+            if (!File.Exists(path))
+            {
+                MessageBox.Show("Can't find the file: " + path);
+            }
+            else
+            {
+                MapWinGIS.Image img = new MapWinGIS.Image();
+                if (!img.Open(path, ImageType.USE_FILE_EXTENSION, true, null))
+                {
+                    MessageBox.Show(img.ErrorMsg[img.LastErrorCode]);
+                    img.Close();
+                }
+                else
+                    return img;
+            }
+            return null;
+        }
+
+        private void MeasuringTool(object sender, _DMapEvents_MouseDownEvent e)
+        {
+            tBoxDataOut.Text += "running\r\n";
+            if (myMap.CursorMode == MapWinGIS.tkCursorMode.cmMeasure)
+            {
+                if (e.button == 1048576)
+                {
+                    myMap.MeasuringChanged += (s, ev) =>
+                    {
+                        if (ev.action == tkMeasuringAction.PointAdded)
+                        {
+
+
+                            double x1, y1;
+
+                            for (int i = 0; i < myMap.Measuring.PointCount; i++)
+                            {
+                                myMap.Measuring.get_PointXY(i, out x1, out y1);
+                                
+
+                            }
+                        }
+                    };
+                }
+            }
+        }
+
+        private void btnClear_Click(object sender, EventArgs e)
+        {
+            myMap.Measuring.Clear() ;
+        }
+
+        private void btnGetPointSet_Click(object sender, EventArgs e)
+        {
+            folder = @"E:\cpp\VisualStudio\GUI2\";
+            filename = "Coordinates.txt";
+            fullpath = folder + filename;
+            toSend = "";
+            double x1, y1, brng;
+            
+            for (int i = 0; i < myMap.Measuring.PointCount; i++)
+            {
+                if (myMap.Measuring.get_PointXY(i, out x1, out y1))
+                {
+                    //myMap.PixelToProj(x, y, ref lon1, ref lat1);
+                    distance = myMap.GeodesicDistance(x1, y1, x2, y2);
+                    myMap.ProjToDegrees(x1, y1, ref lon1, ref lat1);
+                    brng = bearing(lat2, lon2, lat1, lon1);
+                    if (i==0)
+                    {
+                        //toSend += lon1 + " " + lat1 + " " + "0" + "\r\n";
+                    }
+                    else toSend += (float)brng + "," + (float)distance + ",";
+                    
+                    tBoxDataOut.Text = toSend;
+                    x2 = x1;
+                    y2 = y1;
+                    lon2 = lon1;
+                    lat2 = lat1;
+                }
+            }
+            File.WriteAllText(fullpath, toSend);
+        }
+
+        // <summary>
+        // Handles mouse down event and adds the marker
+        // </summary>
+        public void AxMap1MouseDownEvent(object sender, _DMapEvents_MouseDownEvent e)
+        {
+            if (e.button == 1)          // left button
+            {
+                Shapefile sf = myMap.get_Shapefile(m_layerHandle);
+                Shape shp = new Shape();
+                shp.Create(ShpfileType.SHP_POINT);
+                MapWinGIS.Point pnt = new MapWinGIS.Point();
+                double x = 0.0;
+                double y = 0.0;
+                myMap.PixelToProj(e.x, e.y, ref x, ref y);
+                pnt.x = x;
+                pnt.y = y;
+                int index = shp.numPoints;
+                shp.InsertPoint(pnt, ref index);
+                index = sf.NumShapes;
+                if (!sf.EditInsertShape(shp, ref index))
+                {
+                    MessageBox.Show("Failed to insert shape: " + sf.ErrorMsg[sf.LastErrorCode]);
+                    return;
+                }
+                myMap.Redraw();
+
+
+
+
+                myMap.MeasuringChanged += (s, ev) =>
+                {
+                    if (ev.action == tkMeasuringAction.PointAdded)
+                    {
+
+
+                        double x1, y1;
+
+                        for (int i = 0; i < myMap.Measuring.PointCount; i++)
+                        {
+                            myMap.Measuring.get_PointXY(i, out x, out y);
+
+                        }
+                    }
+                };
+            }
+        }
+
+        //------ CALCULATE BEARING
+        private double bearing(double lat, double lon, double lat2, double lon2)
+        {
+            double teta1 = DegToRad(lat);
+            double teta2 = DegToRad(lat2);
+            double delta1 = DegToRad(lat2-lat);
+            double delta2 = DegToRad(lon2-lon);
+
+            double y = Math.Sin(delta2) * Math.Cos(teta2);
+            double x = Math.Cos(teta1) * Math.Sin(teta2) - Math.Sin(teta1) * Math.Cos(teta2) * Math.Cos(delta2);
+            double brng = Math.Atan2(y, x);
+            brng = RadToDeg(brng);
+            return brng;
+
+        }
+
+        private double DegToRad(double deg)
+        {
+            return (3.14 / 180) * deg;
+        }
+
+        private double RadToDeg(double rad)
+        {
+            return (180 / 3.14) * rad;
+        }
+
+
+
+
+
+
+
+
+
+        //-------------Un-used
+        private void Global_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.W)
+            {
+                control = directions.forward;
+            }
+            if (e.KeyCode == Keys.S)
+            {
+                control = directions.backward;
+            }
+            if (e.KeyCode == Keys.A)
+            {
+                control = directions.left;
+            }
+            if (e.KeyCode == Keys.D)
+            {
+                control = directions.right;
+            }
+        }
+
+
+
+        private void groupBox10_Enter(object sender, EventArgs e)
+        {
+
+        }
+
+        private void grpSpeed_Load(object sender, EventArgs e)
+        {
+
+        }
+
+
+        private void tBoxDataIn_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+
+        private void tBoxDataOut_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            /*
+            if (e.KeyChar == (char)Keys.W)
+            {
+                dir = "w";
+                control = directions.forward;
+            }
+            else if (e.KeyChar == (char)Keys.S)
+            {
+                dir = "s";
+                control = directions.backward;
+            }
+            else if (e.KeyChar == (char)Keys.A)
+            {
+                dir = "a";
+                control = directions.left;
+            }
+            else if (e.KeyChar == (char)Keys.D)
+            {
+                dir = "d";
+                control = directions.right;
+            }
+            else
+            {
+                control = directions.stop;
+            }
+
+            // sending data and put it on the screen
+            if (boxMode.Text == "Manual")
+            {
+                switch (control)
+                {
+                    case directions.forward:
+                        tBoxDataOut.Text += "foward" + dir + "\r\n";
+                        break;
+                    case directions.backward:
+                        tBoxDataOut.Text += "backward" + dir + "\r\n";
+                        break;
+                    case directions.left:
+                        tBoxDataOut.Text += "left" + dir + "\r\n";
+                        break;
+                    case directions.right:
+                        tBoxDataOut.Text += "right" + dir + "\r\n";
+                        break;
+                    case directions.stop:
+                        tBoxDataOut.Text += "stop" + dir + "\r\n";
+                        break;
+
+                }
+
+
+                if (serialPort1.IsOpen)
+                {
+                    serialPort1.Write(dir);
+                }
+
+                tBoxDataOut.SelectionStart = tBoxDataOut.TextLength;
+
+                tBoxDataOut.ScrollToCaret();
+                tBoxDataOut.Refresh();
+            }*/
+        }
+            
+
+    }
+}
